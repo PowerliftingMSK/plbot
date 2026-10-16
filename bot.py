@@ -20,7 +20,8 @@ from aiogram.types import (
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
-DB_PATH = "/data/powerbot.db" if os.path.exists("/data") else "powerbot.db"
+DATA_DIR = os.getenv("DATA_DIR", ".")
+DB_PATH = os.path.join(DATA_DIR, "powerbot.db")
 
 logging.basicConfig(level=logging.INFO)
 router = Router()

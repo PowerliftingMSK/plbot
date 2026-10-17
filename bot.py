@@ -6,7 +6,6 @@ import sqlite3
 import string
 import uuid
 from datetime import datetime, timedelta
-from io import BytesIO
 
 from aiogram import Bot, Dispatcher, Router, F
 from aiogram.filters import Command
@@ -21,7 +20,6 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 # ─────────────────────── НАСТРОЙКИ ───────────────────────
 BOT_TOKEN = os.getenv("BOT_TOKEN")
-# BotHost задаёт DATA_DIR=/app/data. Локально — текущая папка.
 DATA_DIR = os.getenv("DATA_DIR", ".")
 DB_PATH = os.path.join(DATA_DIR, "powerbot.db")
 
@@ -154,21 +152,39 @@ EXERCISE_LIBRARY = [
 
 # ─────────────────────── СОСТОЯНИЯ ───────────────────────
 class ProgramCreate(StatesGroup):
-    name = State(); day_name = State(); exercise_name = State()
-    exercise_sets = State(); exercise_reps = State(); exercise_weight = State()
+    name = State()
+    day_name = State()
+    exercise_name = State()
+    exercise_sets = State()
+    exercise_reps = State()
+    exercise_weight = State()
+
 
 class DiaryLog(StatesGroup):
-    exercise = State(); weight = State(); sets = State(); reps = State(); rpe = State()
+    exercise = State()
+    weight = State()
+    sets = State()
+    reps = State()
+    rpe = State()
+
 
 class SuppAdd(StatesGroup):
-    name = State(); dosage = State(); times = State()
+    name = State()
+    dosage = State()
+    times = State()
+
 
 class BodyMetrics(StatesGroup):
-    height = State(); weight = State(); fat = State(); muscle = State(); water = State()
+    height = State()
+    weight = State()
+    fat = State()
+    muscle = State()
+    water = State()
 
 
 # ─────────────────────── ТАЙМЕР ───────────────────────
 active_timers = {}
+
 
 async def _run_timer(bot, user_id, seconds):
     try:
@@ -180,9 +196,11 @@ async def _run_timer(bot, user_id, seconds):
     finally:
         active_timers.pop(user_id, None)
 
+
 def start_timer(bot, user_id, seconds):
     cancel_timer(user_id)
     active_timers[user_id] = asyncio.create_task(_run_timer(bot, user_id, seconds))
+
 
 def cancel_timer(user_id):
     task = active_timers.pop(user_id, None)
@@ -190,40 +208,49 @@ def cancel_timer(user_id):
         task.cancel()
         return True
     return False
+
+
 # ─────────────────────── КЛАВИАТУРЫ ───────────────────────
 def main_menu():
     return ReplyKeyboardMarkup(keyboard=[
         [KeyboardButton(text="🏋️ Программы"), KeyboardButton(text="📝 Дневник")],
-        [KeyboardButton(text="💊 БАДы"), KeyboardButton(text="⏱️ Таймер отдыха")],
+        [KeyboardButton(text="💊 БАДы"), KeyboardButton(text="⏱ Таймер отдыха")],
         [KeyboardButton(text="📏 Замеры"), KeyboardButton(text="💧 Вода")],
         [KeyboardButton(text="📊 Отчёты"), KeyboardButton(text="👨‍🏫 Кабинет тренера")],
     ], resize_keyboard=True)
+
 
 def programs_kb(programs):
     rows = [[InlineKeyboardButton(text=p["name"], callback_data=f"prog:{p['id']}")] for p in programs]
     rows.append([InlineKeyboardButton(text="➕ Создать программу", callback_data="prog_new")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
+
 def weeks_kb(pid, weeks):
-    rows, chunk = [], []
+    rows = []
+    chunk = []
     for w in range(1, weeks + 1):
         chunk.append(InlineKeyboardButton(text=f"📅 Нед. {w}", callback_data=f"wk:{pid}:{w}"))
         if len(chunk) == 4:
-            rows.append(chunk); chunk = []
-    if chunk: rows.append(chunk)
+            rows.append(chunk)
+            chunk = []
+    if chunk:
+        rows.append(chunk)
     rows.append([InlineKeyboardButton(text="⬅️ Назад", callback_data="prog_back")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
+
 
 def week_days_kb(pid, week, days, cur_day):
     rows = []
     for d in days:
-        marker = "▶️" if d["day_order"] == cur_day else "⬜️"
+        marker = "▶️" if d["day_order"] == cur_day else "⬜"
         rows.append([InlineKeyboardButton(text=f"{marker} Д{d['day_order']}: {d['name']}",
                                           callback_data=f"pday:{d['id']}")])
     rows.append([InlineKeyboardButton(text="✅ Завершить неделю",
                                       callback_data=f"finish_week:{pid}:{week}")])
     rows.append([InlineKeyboardButton(text="⬅️ К неделям", callback_data=f"prog:{pid}")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
+
 
 def day_view_kb(day_id):
     return InlineKeyboardMarkup(inline_keyboard=[
@@ -232,16 +259,19 @@ def day_view_kb(day_id):
         [InlineKeyboardButton(text="⬅️ Назад", callback_data=f"back_week:{day_id}")],
     ])
 
+
 def day_kb(day_id):
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="➕ Добавить упражнение", callback_data=f"ex_new:{day_id}")],
         [InlineKeyboardButton(text="✅ Завершить", callback_data=f"day_done:{day_id}")],
     ])
 
+
 def supplements_kb(items):
     rows = [[InlineKeyboardButton(text=f"🗑 {s['name']}", callback_data=f"supp_del:{s['id']}")] for s in items]
     rows.append([InlineKeyboardButton(text="➕ Добавить БАД", callback_data="supp_new")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
+
 
 def reports_kb():
     return InlineKeyboardMarkup(inline_keyboard=[
@@ -250,9 +280,11 @@ def reports_kb():
         [InlineKeyboardButton(text="⚖️ Тоннаж по дням", callback_data="rep_tonnage")],
     ])
 
+
 def exercises_choice_kb(exs):
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text=e, callback_data=f"rep_ex:{e}")] for e in exs])
+
 
 def timer_kb():
     return InlineKeyboardMarkup(inline_keyboard=[
@@ -262,8 +294,9 @@ def timer_kb():
         [InlineKeyboardButton(text="2:30", callback_data="timer:150"),
          InlineKeyboardButton(text="3:00", callback_data="timer:180"),
          InlineKeyboardButton(text="5:00", callback_data="timer:300")],
-        [InlineKeyboardButton(text="⏹️ Отменить таймер", callback_data="timer:cancel")],
+        [InlineKeyboardButton(text="⏹ Отменить таймер", callback_data="timer:cancel")],
     ])
+
 
 def role_kb():
     return InlineKeyboardMarkup(inline_keyboard=[
@@ -271,17 +304,20 @@ def role_kb():
         [InlineKeyboardButton(text="👨‍🏫 Я тренер", callback_data="role:trainer")],
     ])
 
+
 def trainer_menu_kb():
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🎫 Создать код для атлета", callback_data="trainer:invite")],
         [InlineKeyboardButton(text="👥 Мои атлеты", callback_data="trainer:athletes")],
     ])
 
+
 def body_metrics_kb():
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="📏 Ввести замеры", callback_data="bm:add")],
         [InlineKeyboardButton(text="📊 Динамика", callback_data="bm:history")],
     ])
+
 
 def water_kb(enabled, interval):
     status = "🟢 Вкл" if enabled else "🔴 Выкл"
@@ -293,6 +329,7 @@ def water_kb(enabled, interval):
          InlineKeyboardButton(text="3ч", callback_data="water:int:3")],
     ])
 
+
 def exercise_lib_kb():
     rows = [[InlineKeyboardButton(text=n, callback_data=f"libex:{n}")] for n, _ in EXERCISE_LIBRARY]
     rows.append([InlineKeyboardButton(text="✏️ Своё название", callback_data="libex:custom")])
@@ -301,7 +338,8 @@ def exercise_lib_kb():
 
 # ─────────────────────── УТИЛИТЫ ───────────────────────
 def _epley(weight, reps):
-    if reps <= 1: return round(weight, 1)
+    if reps <= 1:
+        return round(weight, 1)
     return round(weight * (1 + reps / 30), 1)
 
 
@@ -323,7 +361,8 @@ def _load_program(user_id, data):
     conn.execute(
         "INSERT OR IGNORE INTO user_progress (user_id, program_id, current_week, current_day_order, updated_at) "
         "VALUES (?, ?, 1, 1, ?)", (user_id, pid, datetime.now().isoformat()))
-    conn.commit(); conn.close()
+    conn.commit()
+    conn.close()
     return pid
 
 
@@ -341,34 +380,43 @@ async def cmd_start(message: Message, state: FSMContext):
         "Всё остальное — в меню снизу.",
         reply_markup=main_menu())
 
+
 @router.message(Command("cancel"))
 async def cancel(message: Message, state: FSMContext):
     await state.clear()
     await message.answer("Отменено.", reply_markup=main_menu())
 
+
 @router.message(Command("setmax"))
 async def set_max(message: Message):
     parts = message.text.split()
     if len(parts) < 3:
-        await message.answer("Формат: /setmax Жим 120"); return
+        await message.answer("Формат: /setmax Жим 120")
+        return
     try:
         weight = float(parts[2].replace(",", "."))
     except ValueError:
-        await message.answer("Вес — число."); return
+        await message.answer("Вес — число.")
+        return
     conn = get_conn()
     conn.execute("INSERT OR REPLACE INTO user_maxes (user_id, exercise, weight, updated_at) VALUES (?, ?, ?, ?)",
                  (message.from_user.id, parts[1], weight, datetime.now().isoformat()))
-    conn.commit(); conn.close()
+    conn.commit()
+    conn.close()
     await message.answer(f"✅ 1ПМ «{parts[1]}» = {weight} кг")
+
 
 @router.message(Command("load_bench"))
 async def load_bench(message: Message):
     _load_program(message.from_user.id, BENCH_PROGRAM)
     await message.answer("✅ Программа «Жим лёжа (цикл)» загружена.")
-    @router.message(Command("load_squat"))
+
+
+@router.message(Command("load_squat"))
 async def load_squat(message: Message):
     _load_program(message.from_user.id, SQUAT_PROGRAM)
     await message.answer("✅ Программа приседа загружена.")
+
 
 @router.message(Command("load_dead"))
 async def load_dead(message: Message):
@@ -386,6 +434,7 @@ async def programs_menu(message: Message, state: FSMContext):
     conn.close()
     await message.answer("Твои программы:", reply_markup=programs_kb(programs))
 
+
 @router.callback_query(F.data == "prog_back")
 async def prog_back(cb: CallbackQuery, state: FSMContext):
     await state.clear()
@@ -394,6 +443,7 @@ async def prog_back(cb: CallbackQuery, state: FSMContext):
                             (cb.from_user.id,)).fetchall()
     conn.close()
     await cb.message.edit_text("Твои программы:", reply_markup=programs_kb(programs))
+
 
 @router.callback_query(F.data.startswith("prog:"))
 async def prog_open(cb: CallbackQuery):
@@ -410,6 +460,7 @@ async def prog_open(cb: CallbackQuery):
         text = f"📋 {prog['name']}\nВыбери неделю:"
     await cb.message.edit_text(text, reply_markup=weeks_kb(pid, prog["weeks"] or 4))
 
+
 @router.callback_query(F.data.startswith("wk:"))
 async def week_open(cb: CallbackQuery):
     _, pid, week = cb.data.split(":")
@@ -425,11 +476,13 @@ async def week_open(cb: CallbackQuery):
     await cb.message.edit_text(f"📅 Неделя {week}\n(▶️ — текущий день)",
                                reply_markup=week_days_kb(pid, week, days_data, cur_day))
 
+
 @router.callback_query(F.data.startswith("pday:"))
 async def pday_open(cb: CallbackQuery):
     day_id = int(cb.data.split(":")[1])
     await _show_day(cb.message, cb.from_user.id, day_id, edit=True)
     await cb.answer()
+
 
 @router.callback_query(F.data.startswith("back_week:"))
 async def back_week(cb: CallbackQuery):
@@ -439,6 +492,7 @@ async def back_week(cb: CallbackQuery):
     conn.close()
     cb.data = f"wk:{row['program_id']}:{row['week']}"
     await week_open(cb)
+
 
 async def _show_day(message, user_id, day_id, edit=False):
     conn = get_conn()
@@ -471,6 +525,7 @@ async def _show_day(message, user_id, day_id, edit=False):
     else:
         await message.answer(text, parse_mode="Markdown", reply_markup=day_view_kb(day_id))
 
+
 @router.callback_query(F.data.startswith("day_reco:"))
 async def day_reco(cb: CallbackQuery):
     day_id = int(cb.data.split(":")[1])
@@ -479,7 +534,8 @@ async def day_reco(cb: CallbackQuery):
                        "WHERE day_id=? AND name LIKE 'Жим%'", (day_id,)).fetchall()
     conn.close()
     if not exs:
-        await cb.answer("Это не день жима.", show_alert=True); return
+        await cb.answer("Это не день жима.", show_alert=True)
+        return
     max_pct = max((e["weight"] for e in exs if e["weight_type"] == "percent"), default=0)
     if max_pct >= 80:
         key, title = "heavy", "💡 Жим тяжёлый — добиваем грудные лёгкими изоляциями:"
@@ -490,6 +546,7 @@ async def day_reco(cb: CallbackQuery):
     text = title + "\n\n" + "\n".join(f"• {n} — {s}×{r}" for n, s, r in BENCH_ACCESSORIES[key])
     await cb.message.answer(text)
     await cb.answer()
+
 
 @router.callback_query(F.data.startswith("finish_day:"))
 async def finish_day(cb: CallbackQuery):
@@ -515,7 +572,8 @@ async def finish_day(cb: CallbackQuery):
                  "current_week=excluded.current_week, current_day_order=excluded.current_day_order, "
                  "updated_at=excluded.updated_at",
                  (user_id, day["program_id"], new_week, new_day, datetime.now().isoformat()))
-    conn.commit(); conn.close()
+    conn.commit()
+    conn.close()
     text = f"🏁 Тренировка «{day['name']}» завершена!\n\n"
     if exercises_today:
         text += "📋 Что сделано:\n"
@@ -524,7 +582,9 @@ async def finish_day(cb: CallbackQuery):
     text += f"\n⚖️ *Суммарный тоннаж: {round(row['total'])} кг*\n▶️ Следующий: Неделя {new_week}, День {new_day}"
     await cb.message.edit_text(text, parse_mode="Markdown")
     await cb.answer("Готово!")
-    @router.callback_query(F.data.startswith("finish_week:"))
+
+
+@router.callback_query(F.data.startswith("finish_week:"))
 async def finish_week(cb: CallbackQuery):
     _, pid, week = cb.data.split(":")
     pid, week = int(pid), int(week)
@@ -535,13 +595,16 @@ async def finish_week(cb: CallbackQuery):
                  "VALUES (?, ?, ?, 1, ?) ON CONFLICT(user_id, program_id) DO UPDATE SET "
                  "current_week=excluded.current_week, current_day_order=1, updated_at=excluded.updated_at",
                  (cb.from_user.id, pid, new_week, datetime.now().isoformat()))
-    conn.commit(); conn.close()
+    conn.commit()
+    conn.close()
     await cb.message.edit_text(f"✅ Неделя {week} завершена.\n▶️ Переходим на Неделю {new_week}.")
+
 
 @router.callback_query(F.data == "prog_new")
 async def prog_new(cb: CallbackQuery, state: FSMContext):
     await state.set_state(ProgramCreate.name)
     await cb.message.edit_text("Введи название программы:")
+
 
 @router.message(ProgramCreate.name)
 async def prog_create_name(message: Message, state: FSMContext):
@@ -551,10 +614,12 @@ async def prog_create_name(message: Message, state: FSMContext):
     pid = cur.lastrowid
     conn.execute("INSERT INTO user_progress (user_id, program_id, current_week, current_day_order, updated_at) "
                  "VALUES (?, ?, 1, 1, ?)", (message.from_user.id, pid, datetime.now().isoformat()))
-    conn.commit(); conn.close()
+    conn.commit()
+    conn.close()
     await state.update_data(program_id=pid, week=1, day_order=1)
     await state.set_state(ProgramCreate.day_name)
     await message.answer("Программа создана. Введи название первого дня:")
+
 
 @router.message(ProgramCreate.day_name)
 async def prog_day_name(message: Message, state: FSMContext):
@@ -563,10 +628,12 @@ async def prog_day_name(message: Message, state: FSMContext):
     cur = conn.execute("INSERT INTO program_days (program_id, week, day_order, name) VALUES (?, ?, ?, ?)",
                        (data["program_id"], data["week"], data["day_order"], message.text.strip()))
     day_id = cur.lastrowid
-    conn.commit(); conn.close()
+    conn.commit()
+    conn.close()
     await state.update_data(day_id=day_id)
     await state.set_state(ProgramCreate.exercise_name)
     await message.answer("День добавлен.", reply_markup=day_kb(day_id))
+
 
 @router.callback_query(F.data.startswith("ex_new:"))
 async def ex_new(cb: CallbackQuery, state: FSMContext):
@@ -575,15 +642,18 @@ async def ex_new(cb: CallbackQuery, state: FSMContext):
     await state.set_state(ProgramCreate.exercise_name)
     await cb.message.edit_text("Выбери упражнение:", reply_markup=exercise_lib_kb())
 
+
 @router.callback_query(ProgramCreate.exercise_name, F.data.startswith("libex:"))
 async def ex_lib(cb: CallbackQuery, state: FSMContext):
     name = cb.data.split(":", 1)[1]
     if name == "custom":
-        await cb.message.edit_text("Введи название упражнения:"); return
+        await cb.message.edit_text("Введи название упражнения:")
+        return
     wtype = dict(EXERCISE_LIBRARY).get(name, "absolute")
     await state.update_data(ex_name=name, ex_wtype=wtype)
     await state.set_state(ProgramCreate.exercise_sets)
     await cb.message.edit_text(f"{name}. Сколько подходов?")
+
 
 @router.message(ProgramCreate.exercise_name)
 async def ex_name(message: Message, state: FSMContext):
@@ -591,39 +661,50 @@ async def ex_name(message: Message, state: FSMContext):
     await state.set_state(ProgramCreate.exercise_sets)
     await message.answer("Сколько подходов?")
 
+
 @router.message(ProgramCreate.exercise_sets)
 async def ex_sets(message: Message, state: FSMContext):
-    try: sets = int(message.text)
+    try:
+        sets = int(message.text)
     except ValueError:
-        await message.answer("Число."); return
+        await message.answer("Число.")
+        return
     await state.update_data(ex_sets=sets)
     await state.set_state(ProgramCreate.exercise_reps)
     await message.answer("Сколько повторений?")
 
+
 @router.message(ProgramCreate.exercise_reps)
 async def ex_reps(message: Message, state: FSMContext):
-    try: reps = int(message.text)
+    try:
+        reps = int(message.text)
     except ValueError:
-        await message.answer("Число."); return
+        await message.answer("Число.")
+        return
     await state.update_data(ex_reps=reps)
     await state.set_state(ProgramCreate.exercise_weight)
     await message.answer("Вес в кг или % (0 — без веса):")
 
+
 @router.message(ProgramCreate.exercise_weight)
 async def ex_weight(message: Message, state: FSMContext):
-    try: weight = float(message.text.replace(",", "."))
+    try:
+        weight = float(message.text.replace(",", "."))
     except ValueError:
-        await message.answer("Число."); return
+        await message.answer("Число.")
+        return
     data = await state.get_data()
     conn = get_conn()
     conn.execute("INSERT INTO program_exercises (day_id, name, sets, reps, weight, weight_type) "
                  "VALUES (?, ?, ?, ?, ?, ?)",
                  (data["day_id"], data["ex_name"], data["ex_sets"], data["ex_reps"],
                   weight, data.get("ex_wtype", "absolute")))
-    conn.commit(); conn.close()
+    conn.commit()
+    conn.close()
     await state.set_state(ProgramCreate.exercise_name)
     await message.answer(f"✅ {data['ex_name']} {data['ex_sets']}×{data['ex_reps']} @ {weight}",
                          reply_markup=day_kb(data["day_id"]))
+
 
 @router.callback_query(F.data.startswith("day_done:"))
 async def day_done(cb: CallbackQuery, state: FSMContext):
@@ -643,46 +724,61 @@ async def diary_menu(message: Message, state: FSMContext):
     await state.set_state(DiaryLog.exercise)
     await message.answer("Введи упражнение (например, «Жим лёжа»):\n/cancel — отмена.")
 
+
 @router.message(DiaryLog.exercise)
 async def diary_ex(message: Message, state: FSMContext):
     await state.update_data(exercise=message.text.strip())
     await state.set_state(DiaryLog.weight)
     await message.answer("Рабочий вес (кг):")
 
+
 @router.message(DiaryLog.weight)
 async def diary_w(message: Message, state: FSMContext):
-    try: w = float(message.text.replace(",", "."))
+    try:
+        w = float(message.text.replace(",", "."))
     except ValueError:
-        await message.answer("Число."); return
+        await message.answer("Число.")
+        return
     await state.update_data(weight=w)
     await state.set_state(DiaryLog.sets)
     await message.answer("Подходов:")
 
+
 @router.message(DiaryLog.sets)
 async def diary_s(message: Message, state: FSMContext):
-    try: s = int(message.text)
+    try:
+        s = int(message.text)
     except ValueError:
-        await message.answer("Число."); return
+        await message.answer("Число.")
+        return
     await state.update_data(sets=s)
     await state.set_state(DiaryLog.reps)
     await message.answer("Повторений:")
 
+
 @router.message(DiaryLog.reps)
 async def diary_r(message: Message, state: FSMContext):
-    try: r = int(message.text)
+    try:
+        r = int(message.text)
     except ValueError:
-        await message.answer("Число."); return
+        await message.answer("Число.")
+        return
     await state.update_data(reps=r)
     await state.set_state(DiaryLog.rpe)
     await message.answer("RPE (1–10) или 0:")
 
+
 @router.message(DiaryLog.rpe)
 async def diary_rpe(message: Message, state: FSMContext):
-    try: rpe = float(message.text.replace(",", "."))
+    try:
+        rpe = float(message.text.replace(",", "."))
     except ValueError:
-        await message.answer("Число."); return
+        await message.answer("Число.")
+        return
     data = await state.get_data()
-    weight, sets, reps = data["weight"], data["sets"], data["reps"]
+    weight = data["weight"]
+    sets = data["sets"]
+    reps = data["reps"]
     tonnage = weight * sets * reps
     today = datetime.now().strftime("%Y-%m-%d")
     conn = get_conn()
@@ -714,15 +810,18 @@ async def diary_rpe(message: Message, state: FSMContext):
                                  f"Сейчас: {cur_val or 'не задан'} кг.",
                                  parse_mode="Markdown", reply_markup=kb)
 
+
 @router.callback_query(F.data.startswith("upd_max:"))
 async def upd_max(cb: CallbackQuery):
     _, ex, val = cb.data.split(":")
     if ex == "no":
-        await cb.message.edit_text("Ок, 1ПМ не изменён."); return
+        await cb.message.edit_text("Ок, 1ПМ не изменён.")
+        return
     conn = get_conn()
     conn.execute("INSERT OR REPLACE INTO user_maxes (user_id, exercise, weight, updated_at) VALUES (?, ?, ?, ?)",
                  (cb.from_user.id, ex, float(val), datetime.now().isoformat()))
-    conn.commit(); conn.close()
+    conn.commit()
+    conn.close()
     await cb.message.edit_text(f"✅ 1ПМ «{ex}» = {val} кг.")
 
 
@@ -742,10 +841,12 @@ async def supp_menu(message: Message, state: FSMContext):
         text += "Пока пусто."
     await message.answer(text, reply_markup=supplements_kb(items))
 
+
 @router.callback_query(F.data == "supp_new")
 async def supp_new(cb: CallbackQuery, state: FSMContext):
     await state.set_state(SuppAdd.name)
     await cb.message.edit_text("Название БАДа:")
+
 
 @router.message(SuppAdd.name)
 async def supp_name(message: Message, state: FSMContext):
@@ -753,11 +854,13 @@ async def supp_name(message: Message, state: FSMContext):
     await state.set_state(SuppAdd.dosage)
     await message.answer("Дозировка (например, «5 г»):")
 
+
 @router.message(SuppAdd.dosage)
 async def supp_dosage(message: Message, state: FSMContext):
     await state.update_data(dosage=message.text.strip())
     await state.set_state(SuppAdd.times)
     await message.answer("Время через запятую (08:00,20:00):")
+
 
 @router.message(SuppAdd.times)
 async def supp_times(message: Message, state: FSMContext):
@@ -773,6 +876,7 @@ async def supp_times(message: Message, state: FSMContext):
     await message.answer("✅ Добавлено.", reply_markup=main_menu())
     await message.answer("Твои БАДы:", reply_markup=supplements_kb(items))
 
+
 @router.callback_query(F.data.startswith("supp_del:"))
 async def supp_del(cb: CallbackQuery):
     sid = int(cb.data.split(":")[1])
@@ -786,20 +890,22 @@ async def supp_del(cb: CallbackQuery):
 
 
 # ─────────────────────── ТАЙМЕР ───────────────────────
-@router.message(F.text == "⏱️ Таймер отдыха")
+@router.message(F.text == "⏱ Таймер отдыха")
 async def timer_menu(message: Message):
-    await message.answer("⏱️ Выбери длительность:", reply_markup=timer_kb())
+    await message.answer("⏱ Выбери длительность:", reply_markup=timer_kb())
+
 
 @router.callback_query(F.data.startswith("timer:"))
 async def timer_cb(cb: CallbackQuery):
     value = cb.data.split(":")[1]
     if value == "cancel":
         ok = cancel_timer(cb.from_user.id)
-        await cb.message.edit_text("⏹️ Отменён." if ok else "Нет активного таймера."); return
+        await cb.message.edit_text("⏹ Отменён." if ok else "Нет активного таймера.")
+        return
     seconds = int(value)
     start_timer(cb.bot, cb.from_user.id, seconds)
     m, s = divmod(seconds, 60)
-    await cb.message.edit_text(f"⏱️ Таймер на *{m}:{s:02d}*.", parse_mode="Markdown")
+    await cb.message.edit_text(f"⏱ Таймер на *{m}:{s:02d}*.", parse_mode="Markdown")
 
 
 # ─────────────────────── ЗАМЕРЫ ───────────────────────
@@ -807,62 +913,87 @@ async def timer_cb(cb: CallbackQuery):
 async def bm_menu(message: Message):
     await message.answer("📏 Замеры тела:", reply_markup=body_metrics_kb())
 
+
 @router.callback_query(F.data == "bm:add")
 async def bm_add(cb: CallbackQuery, state: FSMContext):
     await state.set_state(BodyMetrics.height)
     await cb.message.edit_text("Рост в см:")
 
+
 @router.message(BodyMetrics.height)
 async def bm_h(message: Message, state: FSMContext):
-    try: await state.update_data(height=float(message.text.replace(",", ".")))
+    try:
+        await state.update_data(height=float(message.text.replace(",", ".")))
     except ValueError:
-        await message.answer("Число."); return
+        await message.answer("Число.")
+        return
     await state.set_state(BodyMetrics.weight)
     await message.answer("Вес в кг:")
 
+
 @router.message(BodyMetrics.weight)
 async def bm_w(message: Message, state: FSMContext):
-    try: await state.update_data(weight=float(message.text.replace(",", ".")))
+    try:
+        await state.update_data(weight=float(message.text.replace(",", ".")))
     except ValueError:
-        await message.answer("Число."); return
+        await message.answer("Число.")
+        return
     await state.set_state(BodyMetrics.fat)
     await message.answer("% жира (0, если неизвестно):")
 
+
 @router.message(BodyMetrics.fat)
 async def bm_f(message: Message, state: FSMContext):
-    try: await state.update_data(fat=float(message.text.replace(",", ".")))
+    try:
+        await state.update_data(fat=float(message.text.replace(",", ".")))
     except ValueError:
-        await message.answer("Число."); return
+        await message.answer("Число.")
+        return
     await state.set_state(BodyMetrics.muscle)
     await message.answer("% мышц (0):")
 
+
 @router.message(BodyMetrics.muscle)
 async def bm_m(message: Message, state: FSMContext):
-    try: await state.update_data(muscle=float(message.text.replace(",", ".")))
+    try:
+        await state.update_data(muscle=float(message.text.replace(",", ".")))
     except ValueError:
-        await message.answer("Число."); return
+        await message.answer("Число.")
+        return
     await state.set_state(BodyMetrics.water)
     await message.answer("% воды (0):")
 
+
 @router.message(BodyMetrics.water)
 async def bm_water(message: Message, state: FSMContext):
-    try: water = float(message.text.replace(",", "."))
+    try:
+        water = float(message.text.replace(",", "."))
     except ValueError:
-        await message.answer("Число."); return
+        await message.answer("Число.")
+        return
     data = await state.get_data()
     conn = get_conn()
     conn.execute("INSERT INTO body_metrics (user_id, date, height, weight, fat_pct, muscle_pct, water_pct) "
                  "VALUES (?, ?, ?, ?, ?, ?, ?)",
                  (message.from_user.id, datetime.now().strftime("%Y-%m-%d"),
                   data["height"], data["weight"], data["fat"], data["muscle"], water))
-    conn.commit(); conn.close()
+    conn.commit()
+    conn.close()
     await state.clear()
     h_m = data["height"] / 100
     bmi = round(data["weight"] / (h_m ** 2), 1)
-    status = "недостаток" if bmi < 18.5 else "норма" if bmi < 25 else "избыток" if bmi < 30 else "ожирение"
+    if bmi < 18.5:
+        status = "недостаток"
+    elif bmi < 25:
+        status = "норма"
+    elif bmi < 30:
+        status = "избыток"
+    else:
+        status = "ожирение"
     await message.answer(f"✅ Сохранено.\n📊 ИМТ: *{bmi}* ({status})\n"
                          f"💪 Жир: {data['fat']}% · Мышцы: {data['muscle']}% · Вода: {water}%",
                          parse_mode="Markdown", reply_markup=main_menu())
+
 
 @router.callback_query(F.data == "bm:history")
 async def bm_history(cb: CallbackQuery):
@@ -872,7 +1003,8 @@ async def bm_history(cb: CallbackQuery):
                         (cb.from_user.id,)).fetchall()
     conn.close()
     if not rows:
-        await cb.message.edit_text("Пока нет замеров."); return
+        await cb.message.edit_text("Пока нет замеров.")
+        return
     lines = []
     for r in rows:
         h_m = (r["height"] or 0) / 100
@@ -895,6 +1027,7 @@ async def water_menu(message: Message):
                          f"Сейчас: {'🟢 вкл' if enabled else '🔴 выкл'}, интервал {interval} ч.",
                          reply_markup=water_kb(enabled, interval))
 
+
 @router.callback_query(F.data == "water:toggle")
 async def water_toggle(cb: CallbackQuery):
     conn = get_conn()
@@ -911,6 +1044,7 @@ async def water_toggle(cb: CallbackQuery):
                        (cb.from_user.id,)).fetchone()
     conn.close()
     await cb.message.edit_reply_markup(reply_markup=water_kb(row["enabled"], row["interval_hours"]))
+
 
 @router.callback_query(F.data.startswith("water:int:"))
 async def water_int(cb: CallbackQuery):
@@ -931,6 +1065,7 @@ async def water_int(cb: CallbackQuery):
 async def reports(message: Message):
     await message.answer("Что показать?", reply_markup=reports_kb())
 
+
 @router.callback_query(F.data == "rep_last")
 async def rep_last(cb: CallbackQuery):
     conn = get_conn()
@@ -938,11 +1073,13 @@ async def rep_last(cb: CallbackQuery):
                         "WHERE user_id=? ORDER BY id DESC LIMIT 15", (cb.from_user.id,)).fetchall()
     conn.close()
     if not rows:
-        await cb.message.edit_text("Пока нет записей."); return
+        await cb.message.edit_text("Пока нет записей.")
+        return
     text = "📜 Последние записи:\n\n" + "\n".join(
         f"{r['date']} — {r['exercise']} {r['weight']}кг {r['sets']}×{r['reps']} "
         f"RPE {r['rpe']} ⚖️ {round(r['tonnage'] or 0)}" for r in rows)
     await cb.message.edit_text(text)
+
 
 @router.callback_query(F.data == "rep_progress")
 async def rep_progress(cb: CallbackQuery):
@@ -951,9 +1088,11 @@ async def rep_progress(cb: CallbackQuery):
                         (cb.from_user.id,)).fetchall()
     conn.close()
     if not rows:
-        await cb.message.edit_text("Нет данных."); return
+        await cb.message.edit_text("Нет данных.")
+        return
     await cb.message.edit_text("Выбери упражнение:",
                                reply_markup=exercises_choice_kb([r["exercise"] for r in rows]))
+
 
 @router.callback_query(F.data.startswith("rep_ex:"))
 async def rep_ex(cb: CallbackQuery):
@@ -963,13 +1102,15 @@ async def rep_ex(cb: CallbackQuery):
                         "GROUP BY date ORDER BY date", (cb.from_user.id, ex)).fetchall()
     conn.close()
     if not rows:
-        await cb.message.edit_text("Нет данных."); return
+        await cb.message.edit_text("Нет данных.")
+        return
     text = f"📈 Прогресс: {ex}\n\n"
     for r in rows:
         text += f"{r['date']} — {r['w']} кг\n"
     text += f"\nВсего записей: {len(rows)}"
     await cb.message.edit_text(text)
     await cb.answer()
+
 
 @router.callback_query(F.data == "rep_tonnage")
 async def rep_tonnage(cb: CallbackQuery):
@@ -978,7 +1119,8 @@ async def rep_tonnage(cb: CallbackQuery):
                         "GROUP BY date ORDER BY date DESC LIMIT 15", (cb.from_user.id,)).fetchall()
     conn.close()
     if not rows:
-        await cb.message.edit_text("Нет данных."); return
+        await cb.message.edit_text("Нет данных.")
+        return
     text = "⚖️ Тоннаж по дням:\n\n"
     for r in rows:
         text += f"{r['date']} — {round(r['t'] or 0)} кг\n"
@@ -991,17 +1133,20 @@ async def rep_tonnage(cb: CallbackQuery):
 async def role_cmd(message: Message):
     await message.answer("Кто ты?", reply_markup=role_kb())
 
+
 @router.callback_query(F.data.startswith("role:"))
 async def role_set(cb: CallbackQuery):
     role = cb.data.split(":")[1]
     conn = get_conn()
     conn.execute("UPDATE users SET role=? WHERE user_id=?", (role, cb.from_user.id))
-    conn.commit(); conn.close()
+    conn.commit()
+    conn.close()
     if role == "trainer":
         await cb.message.edit_text("👨‍🏫 Ты тренер.")
     else:
-        await cb.message.edit_text("🏋️ Ты атлет. Есть код? /link КОД", parse_mode="Markdown")
+        await cb.message.edit_text("🏋️ Ты атлет. Есть код? `/link КОД`", parse_mode="Markdown")
     await cb.message.answer("Меню:", reply_markup=main_menu())
+
 
 @router.message(F.text == "👨‍🏫 Кабинет тренера")
 async def trainer_room(message: Message):
@@ -1009,8 +1154,10 @@ async def trainer_room(message: Message):
     row = conn.execute("SELECT role FROM users WHERE user_id=?", (message.from_user.id,)).fetchone()
     conn.close()
     if not row or row["role"] != "trainer":
-        await message.answer("Сначала /role → «Я тренер»."); return
+        await message.answer("Сначала /role → «Я тренер».")
+        return
     await message.answer("👨‍🏫 Кабинет тренера:", reply_markup=trainer_menu_kb())
+
 
 @router.callback_query(F.data == "trainer:invite")
 async def trainer_invite(cb: CallbackQuery):
@@ -1018,23 +1165,29 @@ async def trainer_invite(cb: CallbackQuery):
     conn = get_conn()
     conn.execute("INSERT INTO invite_codes (code, trainer_id, created_at) VALUES (?, ?, ?)",
                  (code, cb.from_user.id, datetime.now().isoformat()))
-    conn.commit(); conn.close()
-    await cb.message.edit_text(f"🎫 Код:\n\n{code}\n\nАтлет вводит /link {code}",
+    conn.commit()
+    conn.close()
+    await cb.message.edit_text(f"🎫 Код:\n\n`{code}`\n\nАтлет вводит `/link {code}`",
                                parse_mode="Markdown")
+
 
 @router.message(Command("link"))
 async def link_code(message: Message):
     parts = message.text.split()
     if len(parts) < 2:
-        await message.answer("Формат: /link КОД"); return
+        await message.answer("Формат: /link КОД")
+        return
     code = parts[1].strip().upper()
     conn = get_conn()
     row = conn.execute("SELECT trainer_id FROM invite_codes WHERE code=?", (code,)).fetchone()
     if not row:
-        conn.close(); await message.answer("❌ Код не найден."); return
+        conn.close()
+        await message.answer("❌ Код не найден.")
+        return
     conn.execute("INSERT OR IGNORE INTO trainer_links (trainer_id, athlete_id) VALUES (?, ?)",
                  (row["trainer_id"], message.from_user.id))
-    conn.commit(); conn.close()
+    conn.commit()
+    conn.close()
     await message.answer("✅ Привязан к тренеру.")
     try:
         await message.bot.send_message(row["trainer_id"],
@@ -1042,4 +1195,116 @@ async def link_code(message: Message):
     except Exception:
         pass
 
+
 @router.callback_query(F.data == "trainer:athletes")
+async def trainer_athletes(cb: CallbackQuery):
+    conn = get_conn()
+    rows = conn.execute("SELECT u.user_id, u.username FROM trainer_links tl "
+                        "JOIN users u ON u.user_id = tl.athlete_id "
+                        "WHERE tl.trainer_id=? ORDER BY u.username", (cb.from_user.id,)).fetchall()
+    conn.close()
+    if not rows:
+        await cb.message.edit_text("Пока нет атлетов.")
+        return
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text=f"@{r['username'] or r['user_id']}",
+                              callback_data=f"athlete:{r['user_id']}")] for r in rows])
+    await cb.message.edit_text("👥 Твои атлеты:", reply_markup=kb)
+
+
+@router.callback_query(F.data.startswith("athlete:"))
+async def athlete_view(cb: CallbackQuery):
+    aid = int(cb.data.split(":")[1])
+    conn = get_conn()
+    link = conn.execute("SELECT 1 FROM trainer_links WHERE trainer_id=? AND athlete_id=?",
+                        (cb.from_user.id, aid)).fetchone()
+    if not link:
+        conn.close()
+        await cb.answer("Нет доступа.", show_alert=True)
+        return
+    rows = conn.execute("SELECT date, exercise, weight, sets, reps, rpe, tonnage FROM diary "
+                        "WHERE user_id=? ORDER BY id DESC LIMIT 10", (aid,)).fetchall()
+    conn.close()
+    if not rows:
+        await cb.message.edit_text("У атлета нет записей.")
+        return
+    text = "📜 Последние записи:\n\n" + "\n".join(
+        f"{r['date']} — {r['exercise']} {r['weight']}кг {r['sets']}×{r['reps']} "
+        f"RPE {r['rpe']} ⚖️ {round(r['tonnage'] or 0)}" for r in rows)
+    await cb.message.edit_text(text)
+
+
+# ─────────────────────── НАПОМИНАНИЯ ───────────────────────
+async def check_supplements(bot):
+    conn = get_conn()
+    users = conn.execute("SELECT user_id, tz_offset FROM users").fetchall()
+    for u in users:
+        now = datetime.utcnow() + timedelta(hours=u["tz_offset"] or 3)
+        cur_time = now.strftime("%H:%M")
+        today = now.strftime("%Y-%m-%d")
+        for s in conn.execute("SELECT id, name, dosage, times FROM supplements WHERE user_id=?",
+                              (u["user_id"],)).fetchall():
+            for t in (s["times"] or "").split(","):
+                t = t.strip()
+                if t == cur_time:
+                    key = f"{u['user_id']}:supp:{s['id']}:{t}:{today}"
+                    if not conn.execute("SELECT 1 FROM sent_log WHERE key=?", (key,)).fetchone():
+                        try:
+                            await bot.send_message(u["user_id"], f"💊 {s['name']} — {s['dosage'] or ''} ({t})")
+                        except Exception:
+                            pass
+                        conn.execute("INSERT OR IGNORE INTO sent_log (key) VALUES (?)", (key,))
+                        conn.commit()
+    conn.close()
+
+
+async def check_water(bot):
+    conn = get_conn()
+    rows = conn.execute("SELECT user_id, interval_hours, start_time, end_time "
+                        "FROM water_settings WHERE enabled=1").fetchall()
+    for r in rows:
+        now = datetime.utcnow() + timedelta(hours=3)
+        hm = now.strftime("%H:%M")
+        if not (r["start_time"] <= hm <= r["end_time"]):
+            continue
+        last = conn.execute("SELECT key FROM sent_log WHERE key LIKE ? ORDER BY key DESC LIMIT 1",
+                            (f"{r['user_id']}:water:%",)).fetchone()
+        if last:
+            try:
+                last_hm = last["key"].rsplit(":", 1)[-1]
+                lh, lm = map(int, last_hm.split(":"))
+                ch, cm = map(int, hm.split(":"))
+                if (ch * 60 + cm) - (lh * 60 + lm) < r["interval_hours"] * 60:
+                    continue
+            except Exception:
+                pass
+        key = f"{r['user_id']}:water:{now.strftime('%Y-%m-%d')}:{hm}"
+        try:
+            await bot.send_message(r["user_id"], "💧 Выпей стакан воды!")
+        except Exception:
+            pass
+        conn.execute("INSERT OR IGNORE INTO sent_log (key) VALUES (?)", (key,))
+        conn.commit()
+    conn.close()
+
+
+# ─────────────────────── ЗАПУСК ───────────────────────
+async def main():
+    if not BOT_TOKEN:
+        print("❌ BOT_TOKEN не задан!", flush=True)
+        return
+    init_db()
+    print(f"✅ База инициализирована: {DB_PATH}", flush=True)
+    bot = Bot(token=BOT_TOKEN)
+    dp = Dispatcher()
+    dp.include_router(router)
+    scheduler = AsyncIOScheduler()
+    scheduler.add_job(check_supplements, "interval", minutes=1, args=[bot])
+    scheduler.add_job(check_water, "interval", minutes=15, args=[bot])
+    scheduler.start()
+    print(f"✅ Бот запущен. База: {DB_PATH}", flush=True)
+    await dp.start_polling(bot)
+
+
+if __name__ == "__main__":
+    asyncio.run(main())
